@@ -2,17 +2,13 @@ use rclrust::{qos::QoSProfile};
 use rclrust_msg::std_msgs::msg::{Float64MultiArray, MultiArrayLayout};
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
-//use device_query::{DeviceQuery, DeviceState, Keycode};
-use std::time::{Duration};
+use device_query::{DeviceQuery, DeviceState, Keycode};
+use std::time::{Duration,Instant};
 use tokio::time::sleep;
 use std::io::{self, Write};
 
-use termion::input::TermRead;
-use termion::event::Key;
-//use termion::raw::IntoRawMode;
 
-
-//const DEBOUNCE_RATE: u64 = 500; // [ms] Adjust debounce time as needed to overcome keypress toggle
+const DEBOUNCE_RATE: u64 = 500; // [ms] Adjust debounce time as needed to overcome keypress toggle
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,22 +24,23 @@ async fn main() -> Result<()> {
 
     // Spawn a new thread for keyboard handling
     std::thread::spawn(move || {
-        let stdin = io::stdin();
-        //let mut stdout = io::stdout().into_raw_mode().unwrap(); // support raw terminal - not sure I want this
-        for c in stdin.keys() {
-            match c.unwrap() {
-                Key::Char(' ') => {
+        let device_state = DeviceState::new();
+        let mut last_space_press = Instant::now();
+        let debounce_duration = Duration::from_millis(DEBOUNCE_RATE); // Adjust debounce time as needed
+    
+        loop {
+            let keys = device_state.get_keys();
+            if keys.contains(&Keycode::Space) {
+                let now = Instant::now();
+                if now.duration_since(last_space_press) >= debounce_duration {
                     let mut data = data_clone.lock().unwrap();
                     *data = data.iter().map(|&x| if x == 0.0 { 1.0 } else { 0.0 }).collect::<Vec<_>>();
+                    last_space_press = now;
                     print!("\rValue:{:?}",data[0]);
                     io::stdout().flush().unwrap();
-                },
-                Key::Char('q') => {
-                    println!("Exit");
-                    break;
                 }
-                _ => {}
             }
+            std::thread::sleep(Duration::from_millis(50)); // Reduce CPU usage
         }
     });
 
@@ -56,6 +53,6 @@ async fn main() -> Result<()> {
             };
             publisher.publish(&msg)?;
         }
-        sleep(Duration::from_millis(500)).await;
+        sleep(Duration::from_millis(100)).await;
     }
 }
